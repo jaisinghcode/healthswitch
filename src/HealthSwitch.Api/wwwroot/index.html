@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HealthSwitch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:wght@600&display=swap">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><div class="mark" aria-hidden="true"><i></i></div><b>HealthSwitch</b><span id="conn" class="live-dot"><i></i>Connecting…</span></div>
+    <nav class="ws-tabs" role="tablist" aria-label="Workspaces" id="ws-tabs"></nav>
+    <button class="tour-btn" id="tour-open" type="button">Guided tour</button>
+  </div>
+</header>
+<div class="context"><div class="context-inner" id="context"></div></div>
+<main id="main"><div class="empty">Loading…</div></main>
+
+<aside class="drawer" id="drawer" aria-label="Guided tour">
+  <div class="drawer-h"><h2>Guided tour</h2><button class="btn quiet sm" id="tour-close" type="button">Close</button></div>
+  <div class="steps" id="steps"></div>
+  <div class="drawer-f">This is the live MVP: every action goes through the real gateway, message queues and database. All people and organisations are fictional.</div>
+</aside>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="modal" id="modal" hidden><div class="modal-c" role="dialog" aria-modal="true" aria-label="Document preview"><div class="row" style="justify-content:space-between;align-items:center"><b id="modal-t"></b><button class="btn quiet sm" type="button" id="modal-x">Close</button></div><div id="modal-b"></div></div></div>
+<div class="keygate" id="keygate" hidden>
+  <form class="card" id="keyform"><div class="card-h"><h2>HealthSwitch demo</h2></div><div class="card-b">
+    <p>Enter the access key you were given.</p>
+    <div class="field"><label for="keyin">Access key</label><input id="keyin" type="text" autocomplete="off"></div>
+    <p class="note" id="keyerr"></p>
+    <div class="row" style="justify-content:flex-end"><button class="btn" type="submit">Open</button></div>
+  </div></form>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

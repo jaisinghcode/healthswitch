@@ -1,0 +1,42 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Restore
+        run: dotnet restore tests/HealthSwitch.Tests/HealthSwitch.Tests.csproj
+      - name: Build
+        run: dotnet build tests/HealthSwitch.Tests/HealthSwitch.Tests.csproj --no-restore -c Release
+      - name: Test
+        run: dotnet test tests/HealthSwitch.Tests/HealthSwitch.Tests.csproj --no-build -c Release --logger "console;verbosity=normal"
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t healthswitch .
+
+  smoke:
+    # Starts Postgres + RabbitMQ + the app and walks one claim end to end through the real queues.
+    runs-on: ubuntu-latest
+    needs: docker
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start stack
+        run: docker compose up -d --build
+      - name: Run smoke test
+        run: bash scripts/smoke.sh http://localhost:8080
+      - name: App logs
+        if: always()
+        run: docker compose logs app | tail -200

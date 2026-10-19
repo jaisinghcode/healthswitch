@@ -1,0 +1,16 @@
+# Render Blueprint: New > Blueprint > pick this repo. Fill the two secret values when Render asks.
+services:
+  - type: web
+    name: healthswitch
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL          # Neon connection string (postgresql://...?...sslmode=require)
+        sync: false
+      - key: RABBITMQ_URL          # CloudAMQP URL (amqps://...)
+        sync: false
+      - key: DEMO_ACCESS_KEY       # the key people type to open the demo
+        sync: false
+      - key: PROCESSOR_WEBHOOK_SECRET
+        generateValue: true
