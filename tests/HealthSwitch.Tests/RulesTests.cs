@@ -1,4 +1,6 @@
+using HealthSwitch.Auth;
 using HealthSwitch.Data;
+using Microsoft.Extensions.Configuration;
 using HealthSwitch.Domain;
 using HealthSwitch.Endpoints;
 using Xunit;
@@ -66,5 +68,36 @@ public class RulesTests
         var sig = Signature.Sign("secret", "{\"a\":1}");
         Assert.True(Signature.Valid("secret", "{\"a\":1}", sig));
         Assert.False(Signature.Valid("secret", "{\"a\":2}", sig));
+    }
+
+    static IConfiguration Config(string secret) =>
+        new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["SESSION_SECRET"] = secret }).Build();
+
+    [Fact]
+    public void Session_token_round_trips_with_organisation_and_role()
+    {
+        var token = Tokens.Issue(Config("s1"), Portals.Find("riverside")!);
+        var s = Tokens.Read(Config("s1"), token);
+        Assert.NotNull(s);
+        Assert.Equal(Seeder.Riverside, s!.OrgCode);
+        Assert.Equal(Role.Hospital, s.Role);
+    }
+
+    [Fact]
+    public void Tampered_or_foreign_tokens_are_refused()
+    {
+        var token = Tokens.Issue(Config("s1"), Portals.Find("palmgrove")!);
+        Assert.Null(Tokens.Read(Config("other-secret"), token));
+        var forged = Tokens.Issue(Config("s1"), Portals.Find("switch")!).Split('.')[0] + "." + token.Split('.')[1];
+        Assert.Null(Tokens.Read(Config("s1"), forged));
+        Assert.Null(Tokens.Read(Config("s1"), "not-a-token"));
+    }
+
+    [Fact]
+    public void Every_portal_has_its_own_login_and_organisation()
+    {
+        Assert.Equal(6, Portals.All.Select(p => p.Slug).Distinct().Count());
+        Assert.Equal(6, Portals.All.Select(p => p.UserName).Distinct().Count());
+        Assert.Equal(6, Portals.All.Select(p => p.OrgCode).Distinct().Count());
     }
 }

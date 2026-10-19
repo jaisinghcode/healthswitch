@@ -34,9 +34,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Start stack
-        run: docker compose up -d --build
+        run: DEMO_ACCESS_KEY=ci-demo-key docker compose up -d --build
       - name: Run smoke test
-        run: bash scripts/smoke.sh http://localhost:8080
+        run: bash scripts/smoke.sh http://localhost:8080 ci-demo-key
       - name: App logs
         if: always()
         run: docker compose logs app | tail -200

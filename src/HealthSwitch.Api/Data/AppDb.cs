@@ -17,6 +17,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<PaymentBatch> Batches => Set<PaymentBatch>();
     public DbSet<MessageEnvelope> Envelopes => Set<MessageEnvelope>();
     public DbSet<EligibilityCheck> EligibilityChecks => Set<EligibilityCheck>();
+    public DbSet<AppInfo> AppInfo => Set<AppInfo>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -52,6 +53,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
             e.Property(x => x.Payload).HasColumnType("jsonb");
         });
         b.Entity<EligibilityCheck>(e => e.HasKey(x => x.CorrelationId));
+        b.Entity<AppInfo>(e => e.HasKey(x => x.Key));
     }
 
     /// <summary>Next value of a database sequence (auth_seq, msg_seq, batch_seq).</summary>

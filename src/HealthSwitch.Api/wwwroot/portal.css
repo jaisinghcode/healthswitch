@@ -1,0 +1,117 @@
+/* Per-organisation websites. app.css holds the shared components; this file gives each organisation its own
+   brand (colours, type, logo) and layout: hospitals use a light top bar, HMOs a sidebar, the switch console and
+   the regulator view a dark bar. */
+
+/* ---------- brands ---------- */
+:root[data-portal="palmgrove"], [data-portal="palmgrove"] { --brand: #0F3D2E; --brand-ink: #F1F7F3; --brand-muted: #A8C7B8; --accent: #0E7A57; --accent-ink: #F7FBF9; --accent-soft: #DDF0E7; --font-display: "Source Serif 4", Georgia, serif; }
+:root[data-portal="riverside"], [data-portal="riverside"] { --brand: #0B3A53; --brand-ink: #EEF6FA; --brand-muted: #9DBFD1; --accent: #17698F; --accent-ink: #F5FAFD; --accent-soft: #DCEBF3; --font-display: "IBM Plex Sans", system-ui, sans-serif; }
+:root[data-portal="northstar"], [data-portal="northstar"] { --brand: #251A55; --brand-ink: #F1EFFB; --brand-muted: #B5ABE3; --accent: #5A44C2; --accent-ink: #FAF9FF; --accent-soft: #E8E4FA; --star: #E2A92F; --font-display: "Source Serif 4", Georgia, serif; }
+:root[data-portal="sapphire"], [data-portal="sapphire"] { --brand: #0A1C40; --brand-ink: #EEF3FC; --brand-muted: #9DB3DC; --accent: #1D5FD0; --accent-ink: #F6F9FF; --accent-soft: #E1EAFB; --font-display: "IBM Plex Sans", system-ui, sans-serif; }
+:root[data-portal="switch"], [data-portal="switch"] { --brand: #0E1513; --brand-ink: #E6EFEA; --brand-muted: #8FA79C; --accent: #0E7A57; --accent-ink: #F7FBF9; --accent-soft: #DDF0E7; }
+:root[data-portal="nhia"], [data-portal="nhia"] { --brand: #1E293B; --brand-ink: #F1F5F9; --brand-muted: #A9B6C8; --accent: #9A5B00; --accent-ink: #FFFBF3; --accent-soft: #FBF0D9; --font-display: "Source Serif 4", Georgia, serif; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"])[data-portal="palmgrove"] { --accent: #3DC394; --accent-ink: #0B1712; --accent-soft: #143A2C; }
+  :root:not([data-theme="light"])[data-portal="switch"] { --accent: #3DC394; --accent-ink: #0B1712; --accent-soft: #143A2C; }
+  :root:not([data-theme="light"])[data-portal="riverside"] { --accent: #6CB8E0; --accent-ink: #08202D; --accent-soft: #12303F; }
+  :root:not([data-theme="light"])[data-portal="northstar"] { --accent: #A99BF0; --accent-ink: #160F33; --accent-soft: #2A2550; }
+  :root:not([data-theme="light"])[data-portal="sapphire"] { --accent: #7FA8F5; --accent-ink: #081631; --accent-soft: #172A4D; }
+  :root:not([data-theme="light"])[data-portal="nhia"] { --accent: #E3B34A; --accent-ink: #231703; --accent-soft: #3A2C10; }
+}
+:root[data-theme="dark"][data-portal="palmgrove"] { --accent: #3DC394; --accent-ink: #0B1712; --accent-soft: #143A2C; }
+:root[data-theme="dark"][data-portal="switch"] { --accent: #3DC394; --accent-ink: #0B1712; --accent-soft: #143A2C; }
+:root[data-theme="dark"][data-portal="riverside"] { --accent: #6CB8E0; --accent-ink: #08202D; --accent-soft: #12303F; }
+:root[data-theme="dark"][data-portal="northstar"] { --accent: #A99BF0; --accent-ink: #160F33; --accent-soft: #2A2550; }
+:root[data-theme="dark"][data-portal="sapphire"] { --accent: #7FA8F5; --accent-ink: #081631; --accent-soft: #172A4D; }
+:root[data-theme="dark"][data-portal="nhia"] { --accent: #E3B34A; --accent-ink: #231703; --accent-soft: #3A2C10; }
+
+body { margin: 0; }
+.logo { display: flex; align-items: center; gap: 10px; min-width: 0; color: inherit; text-decoration: none; }
+.logo-mark { width: 34px; height: 34px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; flex: none; }
+.logo-mark svg { width: 20px; height: 20px; }
+[data-portal="northstar"] .logo-mark { color: var(--star); background: #3A2C80; }
+.logo b { display: block; font-family: var(--font-display); font-size: 17px; font-weight: 600; line-height: 1.15; letter-spacing: -0.01em; }
+.logo small { display: block; font-size: 12px; opacity: 0.75; white-space: nowrap; }
+
+/* ---------- shell ---------- */
+.apphead { background: var(--brand); color: var(--brand-ink); }
+.apphead-inner { max-width: 1360px; margin: 0 auto; padding: 10px max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px)); display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.nav { display: flex; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.nav button { border: 0; background: transparent; color: var(--brand-muted); padding: 8px 12px; border-radius: 8px; cursor: pointer; font-weight: 500; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.nav button:hover { color: var(--brand-ink); }
+.nav button[aria-current="page"] { background: rgba(255,255,255,0.12); color: var(--brand-ink); }
+.nav .badge { background: var(--accent); color: var(--accent-ink); }
+.userbox { display: flex; align-items: center; gap: 10px; margin-left: auto; min-width: 0; }
+.userbox .u { display: grid; line-height: 1.2; font-size: 13px; min-width: 0; }
+.userbox .u small { color: var(--brand-muted); font-size: 11.5px; }
+.userbox .avatar { background: var(--accent); color: var(--accent-ink); }
+.userbox .btn.quiet { background: transparent; color: var(--brand-ink); border-color: rgba(255,255,255,0.3); }
+.apphead .live-dot { color: var(--brand-muted); }
+
+/* hospitals: light bar with a brand stripe and underlined tabs */
+.layout-top-light .apphead { background: var(--surface); color: var(--ink); border-top: 4px solid var(--accent); border-bottom: 1px solid var(--line); }
+.layout-top-light .nav button { color: var(--muted); border-radius: 0; border-bottom: 2px solid transparent; padding-inline: 4px; margin-inline: 8px; }
+.layout-top-light .nav button:hover { color: var(--ink); }
+.layout-top-light .nav button[aria-current="page"] { background: transparent; color: var(--accent); border-bottom-color: var(--accent); }
+.layout-top-light .userbox .u small, .layout-top-light .apphead .live-dot { color: var(--muted); }
+.layout-top-light .userbox .btn.quiet { color: var(--ink); border-color: var(--line); }
+
+.pagehead { background: var(--surface); border-bottom: 1px solid var(--line); }
+.pagehead-inner { max-width: 1360px; margin: 0 auto; padding: 14px max(16px, env(safe-area-inset-right, 0px)) 14px max(16px, env(safe-area-inset-left, 0px)); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.pagehead h1 { font-family: var(--font-display); font-size: 21px; font-weight: 600; letter-spacing: -0.01em; }
+.pagehead p { color: var(--muted); font-size: 13px; }
+.foot { max-width: 1360px; margin: 0 auto; padding: 0 max(16px, env(safe-area-inset-right, 0px)) 28px max(16px, env(safe-area-inset-left, 0px)); font-size: 12px; color: var(--muted); display: flex; gap: 6px 16px; flex-wrap: wrap; justify-content: space-between; }
+.foot a { color: inherit; }
+
+/* HMOs: sidebar */
+@media (min-width: 900px) {
+  .layout-side .shell { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; }
+  .layout-side .apphead { grid-row: 1 / span 3; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+  .layout-side .apphead-inner { flex-direction: column; align-items: stretch; height: 100%; padding: 18px 14px; gap: 22px; flex-wrap: nowrap; }
+  .layout-side .nav { flex-direction: column; flex: 1; overflow: visible; }
+  .layout-side .nav button { justify-content: space-between; padding: 9px 12px; }
+  .layout-side .userbox { margin: 0; flex-wrap: wrap; border-top: 1px solid rgba(255,255,255,0.12); padding-top: 14px; }
+  .layout-side .pagehead, .layout-side main, .layout-side .foot { grid-column: 2; }
+  .layout-side .pagehead-inner, .layout-side main, .layout-side .foot { max-width: none; margin: 0; }
+}
+
+/* ---------- login ---------- */
+.login { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+@media (max-width: 860px) { .login { grid-template-columns: minmax(0, 1fr); } }
+.login-brand { background: var(--brand); color: var(--brand-ink); padding: 40px max(24px, env(safe-area-inset-left, 0px)); display: grid; align-content: space-between; gap: 32px; }
+.login-brand .logo-mark { width: 48px; height: 48px; border-radius: 12px; }
+.login-brand .logo-mark svg { width: 28px; height: 28px; }
+.login-brand h1 { font-family: var(--font-display); font-size: clamp(28px, 4vw, 40px); font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; margin-top: 18px; }
+.login-brand .kind { color: var(--brand-muted); font-size: 14px; margin-top: 6px; }
+.login-brand .blurb { max-width: 46ch; font-size: 15px; line-height: 1.55; }
+.login-brand .fine { color: var(--brand-muted); font-size: 12px; }
+.login-side { display: grid; place-items: center; padding: 32px 16px; background: var(--bg); }
+.login-card { width: 100%; max-width: 400px; display: grid; gap: 16px; }
+.login-card h2 { font-family: var(--font-display); font-size: 24px; font-weight: 600; }
+.login-card form { display: grid; gap: 12px; }
+.login-card input[type=email], .login-card input[type=password], .login-card input[type=text] { width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font: inherit; color: inherit; min-width: 0; }
+.login-card .btn { padding: 10px 14px; font-size: 14px; }
+.demo-cred { border: 1px dashed var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 6px; font-size: 13px; background: var(--surface); }
+.err { color: var(--bad); font-size: 13px; min-height: 1em; }
+
+/* ---------- home page ---------- */
+.home { max-width: 1180px; margin: 0 auto; padding: 32px max(16px, env(safe-area-inset-right, 0px)) 64px max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 28px; }
+.home-hero { display: grid; gap: 10px; }
+.home-hero h1 { font-family: "Source Serif 4", Georgia, serif; font-size: clamp(28px, 4vw, 38px); font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; }
+.home-hero p { max-width: 70ch; color: var(--muted); font-size: 15px; }
+.home h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 10px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 14px; }
+.pcard { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; display: grid; grid-template-rows: auto 1fr; min-width: 0; }
+.pcard-top { background: var(--brand); color: var(--brand-ink); padding: 16px; }
+.pcard-top .logo small { color: var(--brand-muted); opacity: 1; }
+.pcard-body { padding: 14px 16px 16px; display: grid; gap: 12px; align-content: space-between; }
+.pcard-body p { font-size: 13.5px; }
+.cred { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; font-size: 12.5px; background: var(--surface-2); border-radius: 8px; padding: 8px 10px; }
+.cred span { color: var(--muted); }
+.cred b { font-family: var(--font-mono); font-weight: 500; overflow-wrap: anywhere; }
+.script { counter-reset: s; display: grid; gap: 8px; padding: 0; margin: 0; list-style: none; }
+.script li { counter-increment: s; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px 10px 48px; position: relative; font-size: 13.5px; }
+.script li::before { content: counter(s); position: absolute; left: 12px; top: 10px; width: 24px; height: 24px; border-radius: 50%; background: var(--surface-2); display: grid; place-items: center; font-weight: 600; font-size: 12px; }
+.tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; margin-right: 6px; color: var(--brand-ink); background: var(--brand); vertical-align: 1px; }
+a.btn { display: inline-block; text-decoration: none; }
+#portals { display: grid; gap: 24px; }

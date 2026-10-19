@@ -26,7 +26,7 @@ services:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/healthswitch?sslmode=disable
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       PROCESSOR_WEBHOOK_SECRET: local-dev-secret
-      # DEMO_ACCESS_KEY: choose-a-key   # uncomment to require a key in the browser
+      DEMO_ACCESS_KEY: ${DEMO_ACCESS_KEY:-}   # set it to require a key in the browser
     depends_on:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }

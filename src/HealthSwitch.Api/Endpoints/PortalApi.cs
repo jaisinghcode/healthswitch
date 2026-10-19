@@ -1,4 +1,5 @@
 using System.Text;
+using HealthSwitch.Auth;
 using HealthSwitch.Data;
 using HealthSwitch.Domain;
 using HealthSwitch.Gateway;
@@ -19,6 +20,22 @@ public static class PortalApi
     const long MaxFileBytes = 5 * 1024 * 1024;
 
     static IResult Bad(string message, int status = 400) => Results.Json(new { error = new { message } }, statusCode: status);
+    static IResult Forbidden() => Bad("Your organisation cannot see or change this.", 403);
+
+    // Who may do what. Every /api route (apart from login) runs with a signed-in session.
+    static Session Me(HttpContext ctx) => Tokens.Of(ctx) ?? throw new BadHttpRequestException("Sign in first.", 401);
+    static bool IsHospital(HttpContext ctx, string code) => Me(ctx) is { Role: Role.Hospital } s && s.OrgCode == code;
+    static bool IsPayer(HttpContext ctx, string code) => Me(ctx) is { Role: Role.Payer } s && s.OrgCode == code;
+    static bool IsSwitch(HttpContext ctx) => Me(ctx).Role == Role.Switch;
+    static bool CanSee(HttpContext ctx, Claim c) => Me(ctx) switch
+    {
+        { Role: Role.Hospital } s => c.HospitalCode == s.OrgCode,
+        { Role: Role.Payer } s => c.PayerCode == s.OrgCode,
+        { Role: Role.Switch } => true,
+        _ => false,
+    };
+    /// <summary>Hides the 180 historical sample claims from portal lists; they only feed the regulator view.</summary>
+    static IQueryable<Claim> Featured(IQueryable<Claim> q) => q.Where(c => !c.IsSample || c.AuthNo.StartsWith("AUTH-2026-10"));
 
     public record EligibilityRequest(string Lookup);
     public record LineRequest(string Code, long Amount);
@@ -28,20 +45,47 @@ public static class PortalApi
     public record FinalDecisionRequest(bool Approve);
     public record BatchRequest(string HospitalCode, List<string> AuthNos);
     public record OnlineRequest(bool Online);
+    public record LoginRequest(string Portal, string UserName, string Password);
 
     public static void Map(WebApplication app)
     {
         var api = app.MapGroup("/api");
 
-        api.MapGet("/reference", async (AppDb db, CancellationToken ct) =>
+        // ---------- sign-in ----------
+        api.MapGet("/portals", () => Results.Ok(Portals.All.Select(p => new
         {
+            slug = p.Slug, name = p.Name, kind = p.Kind, role = p.Role.ToString().ToLowerInvariant(),
+            userName = p.UserName, password = p.Password, userDisplay = p.UserDisplay, userTitle = p.UserTitle, blurb = p.Blurb,
+        })));
+
+        api.MapPost("/login", (LoginRequest body, IConfiguration config) =>
+        {
+            var p = Portals.Find(body.Portal);
+            if (p is null) return Bad("Unknown portal.", 404);
+            var ok = string.Equals(body.UserName?.Trim(), p.UserName, StringComparison.OrdinalIgnoreCase)
+                     && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(body.Password ?? ""), Encoding.UTF8.GetBytes(p.Password));
+            if (!ok) return Bad("That email and password do not match.", 401);
+            return Results.Ok(new { token = Tokens.Issue(config, p), userDisplay = p.UserDisplay, userTitle = p.UserTitle });
+        });
+
+        api.MapGet("/reference", async (HttpContext ctx, AppDb db, CancellationToken ct) =>
+        {
+            var me = Me(ctx);
+            var portal = Portals.Find(me.Slug)!;
             var orgs = await db.Organisations.AsNoTracking().ToListAsync(ct);
+            var demoPayers = new[] { Seeder.Northstar, Seeder.Sapphire };
+            var mine = orgs.FirstOrDefault(x => x.Code == me.OrgCode);
+            object orgDto = mine is null ? new { code = me.OrgCode, name = portal.Name } : Dtos.Org(mine);
             return Results.Ok(new
             {
-                hospital = Dtos.Org(orgs.First(o => o.Code == Seeder.Hospital)),
+                me = new { slug = me.Slug, role = me.Role.ToString().ToLowerInvariant(), user = me.User, userDisplay = portal.UserDisplay, userTitle = portal.UserTitle },
+                org = orgDto,
+                sapphireAutoLimit = Seeder.SapphireAutoLimit,
                 hospitals = orgs.Where(o => o.Type == OrgType.Hospital).Select(Dtos.Org),
                 payers = orgs.Where(o => o.Type is OrgType.Hmo or OrgType.StateScheme).Select(Dtos.Org),
-                members = await db.Members.AsNoTracking().OrderBy(m => m.Name).ToListAsync(ct),
+                members = await db.Members.AsNoTracking()
+                    .Where(m => me.Role == Role.Payer ? m.PayerCode == me.OrgCode : demoPayers.Contains(m.PayerCode))
+                    .OrderBy(m => m.Name).ToListAsync(ct),
                 services = await db.Services.AsNoTracking().OrderBy(s => s.Code).ToListAsync(ct),
                 diagnoses = Seeder.Diagnoses.Select(d => new { code = d.Code, desc = d.Desc }),
                 declineReasons = DeclineReasons,
@@ -50,8 +94,9 @@ public static class PortalApi
         });
 
         // ---------- hospital ----------
-        api.MapPost("/hospitals/{h}/eligibility", async (string h, EligibilityRequest body, AppDb db, GatewayService gw, CancellationToken ct) =>
+        api.MapPost("/hospitals/{h}/eligibility", async (string h, EligibilityRequest body, HttpContext ctx, AppDb db, GatewayService gw, CancellationToken ct) =>
         {
+            if (!IsHospital(ctx, h)) return Forbidden();
             var q = (body.Lookup ?? "").Replace(" ", "").ToUpperInvariant();
             var m = await db.Members.FirstOrDefaultAsync(x => x.Nin == q || x.MemberNo == q, ct);
             if (m is null) return Bad("No member found with that NIN or member number.", 404);
@@ -62,14 +107,16 @@ public static class PortalApi
             return Results.Ok(new { correlationId = corr, member = m });
         });
 
-        api.MapGet("/eligibility/{corr:guid}", async (Guid corr, AppDb db, CancellationToken ct) =>
+        api.MapGet("/eligibility/{corr:guid}", async (Guid corr, HttpContext ctx, AppDb db, CancellationToken ct) =>
         {
             var c = await db.EligibilityChecks.AsNoTracking().FirstOrDefaultAsync(x => x.CorrelationId == corr, ct);
+            if (c is not null && !IsHospital(ctx, c.HospitalCode)) return Forbidden();
             return c is null ? Results.NotFound() : Results.Ok(new { status = c.Status, via = c.Via });
         });
 
-        api.MapPost("/hospitals/{h}/preauth", async (string h, PreAuthRequest body, AppDb db, GatewayService gw, CancellationToken ct) =>
+        api.MapPost("/hospitals/{h}/preauth", async (string h, PreAuthRequest body, HttpContext ctx, AppDb db, GatewayService gw, CancellationToken ct) =>
         {
+            if (!IsHospital(ctx, h)) return Forbidden();
             var m = await db.Members.FindAsync(new object[] { body.MemberNo }, ct);
             if (m is null) return Bad("Unknown member.");
             if (!m.Active) return Bad("This member's cover is not active.");
@@ -102,26 +149,33 @@ public static class PortalApi
             return Results.Ok(new { id = claim.Id, authNo = claim.AuthNo });
         });
 
-        api.MapGet("/claims", async (string? hospital, string? payer, bool? awaiting, AppDb db, CancellationToken ct) =>
+        // Lists are always limited to the signed-in organisation's own claims.
+        api.MapGet("/claims", async (bool? awaiting, HttpContext ctx, AppDb db, CancellationToken ct) =>
         {
-            var q = db.Claims.AsQueryable();
-            if (!string.IsNullOrEmpty(hospital)) q = q.Where(c => c.HospitalCode == hospital && (!c.IsSample || c.AuthNo.StartsWith("AUTH-2026-10")));
-            if (!string.IsNullOrEmpty(payer)) q = q.Where(c => c.PayerCode == payer);
+            var me = Me(ctx);
+            var q = Featured(db.Claims.AsQueryable());
+            if (me.Role == Role.Hospital) q = q.Where(c => c.HospitalCode == me.OrgCode);
+            else if (me.Role == Role.Payer) q = q.Where(c => c.PayerCode == me.OrgCode);
+            else if (me.Role != Role.Switch) return Forbidden();
             if (awaiting == true) q = q.Where(c => c.AwaitingPayer);
             q = awaiting == true ? q.OrderBy(c => c.SubmittedAt) : q.OrderByDescending(c => c.SubmittedAt);
             return Results.Ok(await Dtos.Claims(db, q.Take(50), ct));
         });
 
-        api.MapGet("/claims/{id:guid}", async (Guid id, AppDb db, CancellationToken ct) =>
+        api.MapGet("/claims/{id:guid}", async (Guid id, HttpContext ctx, AppDb db, CancellationToken ct) =>
         {
+            var claim = await db.Claims.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, ct);
+            if (claim is null) return Results.NotFound();
+            if (!CanSee(ctx, claim)) return Forbidden();
             var list = await Dtos.Claims(db, db.Claims.Where(c => c.Id == id), ct);
-            return list.Count == 0 ? Results.NotFound() : Results.Ok(list[0]);
+            return Results.Ok(list[0]);
         });
 
-        api.MapPost("/claims/{id:guid}/final", async (Guid id, AppDb db, GatewayService gw, CancellationToken ct) =>
+        api.MapPost("/claims/{id:guid}/final", async (Guid id, HttpContext ctx, AppDb db, GatewayService gw, CancellationToken ct) =>
         {
             var claim = await db.Claims.Include(c => c.Items).Include(c => c.Events).FirstOrDefaultAsync(c => c.Id == id, ct);
             if (claim is null) return Results.NotFound();
+            if (!IsHospital(ctx, claim.HospitalCode)) return Forbidden();
             var roll = ClaimRules.RollUp(claim.Items);
             if (claim.Stage != Stages.PreAuth || roll is not ("approved" or "partial")) return Bad("Only an approved pre-authorisation can become a final claim.");
             var hosp = await db.Organisations.FindAsync(new object[] { claim.HospitalCode }, ct);
@@ -135,12 +189,13 @@ public static class PortalApi
         });
 
         // The hospital answers a query: files per line item (form field "item-{lineId}") plus an optional note.
-        api.MapPost("/claims/{id:guid}/documents", async (Guid id, HttpRequest req, AppDb db, GatewayService gw, CancellationToken ct) =>
+        api.MapPost("/claims/{id:guid}/documents", async (Guid id, HttpRequest req, HttpContext ctx, AppDb db, GatewayService gw, CancellationToken ct) =>
         {
             if (!req.HasFormContentType) return Bad("Send the documents as a multipart form.");
             var form = await req.ReadFormAsync(ct);
             var claim = await db.Claims.Include(c => c.Items).Include(c => c.Events).FirstOrDefaultAsync(c => c.Id == id, ct);
             if (claim is null) return Results.NotFound();
+            if (!IsHospital(ctx, claim.HospitalCode)) return Forbidden();
             var queried = claim.Items.Where(i => i.Status == ItemStatus.Query).ToList();
             if (queried.Count == 0) return Bad("This claim has no open query.");
             var note = form["note"].ToString().Trim();
@@ -170,16 +225,20 @@ public static class PortalApi
             return Results.Ok(new { files = saved.Count });
         }).DisableAntiforgery();
 
-        api.MapGet("/attachments/{id:guid}", async (Guid id, AppDb db, CancellationToken ct) =>
+        api.MapGet("/attachments/{id:guid}", async (Guid id, HttpContext ctx, AppDb db, CancellationToken ct) =>
         {
             var a = await db.Attachments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
             if (a is null) return Results.NotFound();
+            var owner = await db.LineItems.AsNoTracking().Where(i => i.Id == a.LineItemId)
+                .Join(db.Claims.AsNoTracking(), i => i.ClaimId, c => c.Id, (i, c) => c).FirstOrDefaultAsync(ct);
+            if (owner is null || !CanSee(ctx, owner)) return Forbidden();
             var safeType = a.ContentType.StartsWith("image/") || a.ContentType == "application/pdf" ? a.ContentType : "application/octet-stream";
             return Results.File(a.Data, safeType, a.FileName, enableRangeProcessing: false);
         });
 
-        api.MapGet("/hospitals/{h}/ledger", async (string h, AppDb db, CancellationToken ct) =>
+        api.MapGet("/hospitals/{h}/ledger", async (string h, HttpContext ctx, AppDb db, CancellationToken ct) =>
         {
+            if (!IsHospital(ctx, h)) return Forbidden();
             var orgs = await db.Organisations.AsNoTracking().ToDictionaryAsync(o => o.Code, ct);
             var rows = await db.Ledger.AsNoTracking().Where(l => l.HospitalCode == h && (!l.IsSample || l.AuthNo.StartsWith("AUTH-2026-10")))
                 .OrderByDescending(l => l.FinalizedAt).Take(100).ToListAsync(ct);
@@ -189,10 +248,11 @@ public static class PortalApi
         });
 
         // ---------- payer ----------
-        api.MapPost("/claims/{id:guid}/review", async (Guid id, ReviewRequest body, AppDb db, GatewayService gw, CancellationToken ct) =>
+        api.MapPost("/claims/{id:guid}/review", async (Guid id, ReviewRequest body, HttpContext ctx, AppDb db, GatewayService gw, CancellationToken ct) =>
         {
             var claim = await db.Claims.Include(c => c.Items).Include(c => c.Events).FirstOrDefaultAsync(c => c.Id == id, ct);
             if (claim is null) return Results.NotFound();
+            if (!IsPayer(ctx, claim.PayerCode)) return Forbidden();
             if (!claim.AwaitingPayer || claim.Stage != Stages.PreAuth) return Bad("This request is not waiting for a review.");
             var payer = await db.Organisations.FindAsync(new object[] { claim.PayerCode }, ct);
             var byId = (body.Decisions ?? new()).ToDictionary(d => d.LineId);
@@ -209,10 +269,11 @@ public static class PortalApi
                     _ => throw new BadHttpRequestException("Unknown decision " + d.Decision),
                 });
             }
-            var remark = string.IsNullOrWhiteSpace(body.Remark) ? null
-                : new RemarkDto($"{payer?.Name} · {(string.IsNullOrWhiteSpace(body.Reviewer) ? "claims reviewer" : body.Reviewer)}", body.Remark.Trim());
+            var who = Portals.Find(Me(ctx).Slug);
+            var reviewer = who is null ? "claims reviewer" : $"{who.UserDisplay}, {who.UserTitle.ToLowerInvariant()}";
+            var remark = string.IsNullOrWhiteSpace(body.Remark) ? null : new RemarkDto($"{payer?.Name} · {reviewer}", body.Remark.Trim());
             claim.AwaitingPayer = false;
-            claim.Log($"{payer?.Name} reviewer submitted decisions");
+            claim.Log($"{payer?.Name}: decisions submitted by {reviewer}");
             await db.SaveChangesAsync(ct);
             var apiName = decisions.Any(d => d.Status == ItemStatus.Query) ? "communication.request" : "preauth.on_submit";
             await gw.AcceptAsync(new AcceptRequest(apiName, claim.PayerCode, claim.HospitalCode, Fhir.Json(new DecisionPayload(decisions, remark)),
@@ -220,10 +281,11 @@ public static class PortalApi
             return Results.Ok();
         });
 
-        api.MapPost("/claims/{id:guid}/final-decision", async (Guid id, FinalDecisionRequest body, AppDb db, GatewayService gw, CancellationToken ct) =>
+        api.MapPost("/claims/{id:guid}/final-decision", async (Guid id, FinalDecisionRequest body, HttpContext ctx, AppDb db, GatewayService gw, CancellationToken ct) =>
         {
             var claim = await db.Claims.Include(c => c.Events).FirstOrDefaultAsync(c => c.Id == id, ct);
             if (claim is null) return Results.NotFound();
+            if (!IsPayer(ctx, claim.PayerCode)) return Forbidden();
             if (!claim.AwaitingPayer || claim.Stage != Stages.FinalClaim) return Bad("This claim is not waiting for a final decision.");
             claim.AwaitingPayer = false;
             claim.Log(body.Approve ? "Payer approved the final claim" : "Payer declined the final claim");
@@ -233,8 +295,9 @@ public static class PortalApi
             return Results.Ok();
         });
 
-        api.MapGet("/payers/{p}/ledger", async (string p, string? hospital, AppDb db, CancellationToken ct) =>
+        api.MapGet("/payers/{p}/ledger", async (string p, string? hospital, HttpContext ctx, AppDb db, CancellationToken ct) =>
         {
+            if (!IsPayer(ctx, p)) return Forbidden();
             var orgs = await db.Organisations.AsNoTracking().ToDictionaryAsync(o => o.Code, ct);
             var hospitals = await db.Ledger.AsNoTracking().Where(l => l.PayerCode == p && l.Status == "unpaid").Select(l => l.HospitalCode).Distinct().ToListAsync(ct);
             var q = db.Ledger.AsNoTracking().Where(l => l.PayerCode == p && l.Status == "unpaid");
@@ -243,8 +306,9 @@ public static class PortalApi
             return Results.Ok(new { hospitals = hospitals.Select(h => orgs.TryGetValue(h, out var o) ? Dtos.Org(o) : null).Where(x => x is not null), entries = rows.Select(l => Dtos.Ledger(l, orgs)) });
         });
 
-        api.MapGet("/payers/{p}/batches", async (string p, AppDb db, CancellationToken ct) =>
+        api.MapGet("/payers/{p}/batches", async (string p, HttpContext ctx, AppDb db, CancellationToken ct) =>
         {
+            if (!IsPayer(ctx, p)) return Forbidden();
             var orgs = await db.Organisations.AsNoTracking().ToDictionaryAsync(o => o.Code, ct);
             var rows = await db.Batches.AsNoTracking().Where(b => b.PayerCode == p).OrderByDescending(b => b.CreatedAt).Take(20).ToListAsync(ct);
             return Results.Ok(rows.Select(b => new
@@ -255,8 +319,9 @@ public static class PortalApi
             }));
         });
 
-        api.MapPost("/payers/{p}/batches", async (string p, BatchRequest body, AppDb db, CancellationToken ct) =>
+        api.MapPost("/payers/{p}/batches", async (string p, BatchRequest body, HttpContext ctx, AppDb db, CancellationToken ct) =>
         {
+            if (!IsPayer(ctx, p)) return Forbidden();
             var auths = (body.AuthNos ?? new()).Distinct().ToList();
             var entries = await db.Ledger.Where(l => l.PayerCode == p && l.HospitalCode == body.HospitalCode && l.Status == "unpaid" && auths.Contains(l.AuthNo)).ToListAsync(ct);
             if (entries.Count == 0 || entries.Count != auths.Count) return Bad("Select approved, unpaid claims for one hospital only.");
@@ -274,10 +339,11 @@ public static class PortalApi
         });
 
         // Demo control: plays the payment processor and calls our signed webhook, as a real processor would.
-        api.MapPost("/batches/{batchNo}/simulate-payment", async (string batchNo, AppDb db, IHttpClientFactory http, IConfiguration config, CancellationToken ct) =>
+        api.MapPost("/batches/{batchNo}/simulate-payment", async (string batchNo, HttpContext ctx, AppDb db, IHttpClientFactory http, IConfiguration config, CancellationToken ct) =>
         {
             var batch = await db.Batches.FirstOrDefaultAsync(b => b.BatchNo == batchNo, ct);
             if (batch is null) return Results.NotFound();
+            if (!IsPayer(ctx, batch.PayerCode) && !IsSwitch(ctx)) return Forbidden();
             if (batch.Status != "pending") return Bad("This batch is not awaiting payment.");
             batch.Status = "confirming";
             await db.SaveChangesAsync(ct);
@@ -289,8 +355,9 @@ public static class PortalApi
         });
 
         // ---------- switch monitor ----------
-        api.MapGet("/switch/overview", async (AppDb db, IConfiguration config, CancellationToken ct) =>
+        api.MapGet("/switch/overview", async (HttpContext ctx, AppDb db, IConfiguration config, CancellationToken ct) =>
         {
+            if (!IsSwitch(ctx)) return Forbidden();
             var since = DateTimeOffset.UtcNow.AddHours(-12);
             var active = await db.Envelopes.AsNoTracking().Where(e => e.Status != "delivered" && e.Status != "dead")
                 .GroupBy(e => e.Stage).Select(g => new { stage = g.Key, count = g.Count() }).ToListAsync(ct);
@@ -315,12 +382,14 @@ public static class PortalApi
                 stages = active,
                 deliveredLast12h = await db.Envelopes.CountAsync(e => e.Status == "delivered" && e.UpdatedAt > since, ct),
                 recent = recent.Select(Msg), dead = dead.Select(Msg),
-                participants = orgs.Values.Where(o => o.Type is OrgType.Hmo or OrgType.StateScheme || o.Code == Seeder.Hospital).Select(Dtos.Org),
+                participants = orgs.Values.Where(o => o.Type is OrgType.Hmo or OrgType.StateScheme || Seeder.PortalHospitals.Contains(o.Code))
+                    .OrderBy(o => o.Type).ThenBy(o => o.Name).Select(Dtos.Org),
             });
         });
 
-        api.MapPost("/switch/participants/{code}/online", async (string code, OnlineRequest body, AppDb db, CancellationToken ct) =>
+        api.MapPost("/switch/participants/{code}/online", async (string code, OnlineRequest body, HttpContext ctx, AppDb db, CancellationToken ct) =>
         {
+            if (!IsSwitch(ctx)) return Forbidden();
             var org = await db.Organisations.FindAsync(new object[] { code }, ct);
             if (org is null) return Results.NotFound();
             if (org.Mode != ConnectionMode.Api) return Bad("Only API-connected participants can go offline.");
@@ -329,8 +398,9 @@ public static class PortalApi
             return Results.Ok();
         });
 
-        api.MapPost("/switch/messages/{id:guid}/replay", async (Guid id, AppDb db, ISendEndpointProvider send, CancellationToken ct) =>
+        api.MapPost("/switch/messages/{id:guid}/replay", async (Guid id, HttpContext ctx, AppDb db, ISendEndpointProvider send, CancellationToken ct) =>
         {
+            if (!IsSwitch(ctx)) return Forbidden();
             var env = await db.Envelopes.FindAsync(new object[] { id }, ct);
             if (env is null) return Results.NotFound();
             if (env.Status != "dead") return Bad("Only dead-lettered messages can be replayed.");
@@ -344,9 +414,18 @@ public static class PortalApi
             return Results.Ok();
         });
 
-        // ---------- NHIA (aggregated, no patient-level data) ----------
-        api.MapGet("/nhia/summary", async (AppDb db, CancellationToken ct) =>
+        // Demo control: throws away everything done in the demo and reloads the sample data.
+        api.MapPost("/switch/reset", async (HttpContext ctx, AppDb db, CancellationToken ct) =>
         {
+            if (!IsSwitch(ctx)) return Forbidden();
+            await Seeder.ResetAsync(db);
+            return Results.Ok();
+        });
+
+        // ---------- NHIA (aggregated, no patient-level data) ----------
+        api.MapGet("/nhia/summary", async (HttpContext ctx, AppDb db, CancellationToken ct) =>
+        {
+            if (Me(ctx).Role is not (Role.Regulator or Role.Switch)) return Forbidden();
             var orgs = await db.Organisations.AsNoTracking().ToDictionaryAsync(o => o.Code, ct);
             var since = DateTimeOffset.UtcNow.AddDays(-31);
             var claims = await db.Claims.AsNoTracking().Include(c => c.Items).Where(c => c.SubmittedAt > since).ToListAsync(ct);

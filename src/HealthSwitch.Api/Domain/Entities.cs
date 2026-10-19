@@ -183,6 +183,13 @@ public class MessageEnvelope
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
+/// <summary>Key/value settings kept by the app itself, such as the sample-data version.</summary>
+public class AppInfo
+{
+    public string Key { get; set; } = "";
+    public string Value { get; set; } = "";
+}
+
 public class EligibilityCheck
 {
     public Guid CorrelationId { get; set; }

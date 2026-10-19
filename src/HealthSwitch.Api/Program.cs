@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using HealthSwitch.Auth;
 using HealthSwitch.Data;
 using HealthSwitch.Endpoints;
 using HealthSwitch.Gateway;
@@ -63,7 +64,30 @@ app.Use(async (ctx, next) =>
     await next();
 });
 
+// Each organisation signs in to its own portal. The signed token says which organisation and role;
+// the endpoints only ever show or change that organisation's own data.
+app.Use(async (ctx, next) =>
+{
+    var p = ctx.Request.Path;
+    if (p.StartsWithSegments("/api") && !Tokens.IsPublic(p))
+    {
+        var session = Tokens.Read(app.Configuration, Tokens.FromRequest(ctx.Request));
+        if (session is null)
+        {
+            ctx.Response.StatusCode = 401;
+            await ctx.Response.WriteAsJsonAsync(new { error = new { code = "ERR_LOGIN_REQUIRED", message = "Please sign in." } });
+            return;
+        }
+        ctx.Items[Tokens.ItemKey] = session;
+    }
+    await next();
+});
+
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+// One page per organisation: /palmgrove, /riverside, /northstar, /sapphire, /switch, /nhia.
+// Literal routes, so they never shadow the static files (a "/{slug}" route would).
+foreach (var portal in Portals.All)
+    app.MapGet("/" + portal.Slug, (IWebHostEnvironment env) => Results.File(Path.Combine(env.WebRootPath, "portal.html"), "text/html; charset=utf-8"));
 app.MapGet("/api/meta", (IConfiguration config) => Results.Ok(new
 {
     keyRequired = !string.IsNullOrEmpty(config["DEMO_ACCESS_KEY"]),

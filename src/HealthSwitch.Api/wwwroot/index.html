@@ -3,37 +3,74 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>HealthSwitch</title>
+<title>HealthSwitch demo</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:wght@600&display=swap">
-<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/portal.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="topbar-inner">
-    <div class="brand"><div class="mark" aria-hidden="true"><i></i></div><b>HealthSwitch</b><span id="conn" class="live-dot"><i></i>Connecting…</span></div>
-    <nav class="ws-tabs" role="tablist" aria-label="Workspaces" id="ws-tabs"></nav>
-    <button class="tour-btn" id="tour-open" type="button">Guided tour</button>
-  </div>
-</header>
-<div class="context"><div class="context-inner" id="context"></div></div>
-<main id="main"><div class="empty">Loading…</div></main>
-
-<aside class="drawer" id="drawer" aria-label="Guided tour">
-  <div class="drawer-h"><h2>Guided tour</h2><button class="btn quiet sm" id="tour-close" type="button">Close</button></div>
-  <div class="steps" id="steps"></div>
-  <div class="drawer-f">This is the live MVP: every action goes through the real gateway, message queues and database. All people and organisations are fictional.</div>
-</aside>
-<div class="toast" id="toast" role="status" aria-live="polite"></div>
-<div class="modal" id="modal" hidden><div class="modal-c" role="dialog" aria-modal="true" aria-label="Document preview"><div class="row" style="justify-content:space-between;align-items:center"><b id="modal-t"></b><button class="btn quiet sm" type="button" id="modal-x">Close</button></div><div id="modal-b"></div></div></div>
-<div class="keygate" id="keygate" hidden>
-  <form class="card" id="keyform"><div class="card-h"><h2>HealthSwitch demo</h2></div><div class="card-b">
-    <p>Enter the access key you were given.</p>
-    <div class="field"><label for="keyin">Access key</label><input id="keyin" type="text" autocomplete="off"></div>
-    <p class="note" id="keyerr"></p>
-    <div class="row" style="justify-content:flex-end"><button class="btn" type="submit">Open</button></div>
+<header class="apphead" data-portal="switch"><div class="apphead-inner">
+  <a class="logo" href="/"><span class="logo-mark" id="home-mark"></span><span><b>HealthSwitch</b><small>Live demo</small></span></a>
+  <span class="live-dot" id="conn" style="margin-left:auto"><i></i>Connecting…</span>
+</div></header>
+<div class="home">
+  <section class="home-hero">
+    <h1>One switch, six separate websites</h1>
+    <p>Each website below belongs to a different organisation and has its own login. Open them in separate tabs and place them side by side: a request sent from a hospital appears in the HMO’s inbox a few seconds later, after passing through the HealthSwitch gateway and message queues. All organisations, people and amounts are fictional.</p>
+  </section>
+  <form class="card" id="keyform" hidden style="max-width:460px"><div class="card-h"><h2>Enter the demo access key</h2></div><div class="card-b">
+    <p class="note">You need it once on this browser. The logins for each website appear after it.</p>
+    <div class="field"><label for="keyin">Access key</label><input id="keyin" type="text" autocomplete="off" required></div>
+    <p class="err" id="keyerr"></p>
+    <div class="row" style="justify-content:flex-end"><button class="btn" type="submit">Continue</button></div>
   </div></form>
+  <div id="portals"></div>
+  <section id="script-wrap" hidden>
+    <h2>Suggested demo, about 10 minutes</h2>
+    <ol class="script">
+      <li><span class="tag" data-portal="palmgrove">Palmgrove</span>Sign in. Open <b>New request</b>, check cover for <b>Tunde Bakare</b> (Northstar HMO), tick consent and send a consultation plus full blood count.</li>
+      <li><span class="tag" data-portal="switch">Switch console</span>Watch the message pass through <span class="mono">q.route</span> and <span class="mono">q.deliver.portal</span>. Open a log row to show the envelope and FHIR payload.</li>
+      <li><span class="tag" data-portal="northstar">Northstar HMO</span>The request is in the <b>Review inbox</b>. Approve the consultation, choose <b>Request info</b> on the blood count with a note, add a remark and submit.</li>
+      <li><span class="tag" data-portal="palmgrove">Palmgrove</span>The query and remark appear. Upload any PDF or photo and send it.</li>
+      <li><span class="tag" data-portal="northstar">Northstar HMO</span>The document is back in the inbox. View it and approve.</li>
+      <li><span class="tag" data-portal="palmgrove">Palmgrove</span>Submit the final claim. <span class="tag" data-portal="northstar">Northstar HMO</span>Approve it, then in <b>Payments</b> batch Palmgrove’s claims and simulate the payment. Palmgrove’s <b>Payments</b> tab shows them as paid.</li>
+      <li><span class="tag" data-portal="riverside">Riverside</span>Send a consultation for <b>Emeka Nwosu</b> (Sapphire HMO). Sapphire’s own system decides it in seconds because it is under ₦50,000.</li>
+      <li><span class="tag" data-portal="riverside">Riverside</span>Send another for Emeka with an MRI. It is over ₦50,000, so it lands in <span class="tag" data-portal="sapphire">Sapphire HMO</span>’s reviewer inbox. Decide it there.</li>
+      <li>Point out that Riverside never sees Palmgrove’s patients, and Northstar never sees Sapphire’s claims.</li>
+      <li><span class="tag" data-portal="switch">Switch console</span>Turn Sapphire HMO offline, send a Sapphire request from Riverside, watch it retry, then turn Sapphire back on and watch it deliver.</li>
+      <li><span class="tag" data-portal="nhia">Regulator view</span>National totals, approval rates and payment ageing, with no patient-level data.</li>
+    </ol>
+    <p class="note" style="margin-top:10px">Before a meeting: open this page a minute early (the free server sleeps when idle), then use <b>Reset demo data</b> in the switch console for a clean start.</p>
+  </section>
 </div>
-<script src="app.js"></script>
+<script src="/brands.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  let KEY = ''; try { KEY = localStorage.getItem('hs-key') || ''; } catch (e) {}
+  $('#home-mark').innerHTML = window.HS_MARKS.switch;
+  const GROUPS = [['Hospitals', ['palmgrove', 'riverside']], ['HMOs', ['northstar', 'sapphire']], ['The switch and the regulator', ['switch', 'nhia']]];
+  async function load() {
+    const res = await fetch('/api/portals', { headers: KEY ? { 'X-Demo-Key': KEY } : {} });
+    $('#conn').innerHTML = '<i></i>' + (res.status === 401 || res.ok ? 'Server awake' : 'Waking the server…');
+    if (res.status === 401) { $('#keyform').hidden = false; $('#portals').innerHTML = ''; $('#script-wrap').hidden = true; if (KEY) $('#keyerr').textContent = 'That key did not work.'; $('#keyin').focus(); return; }
+    if (!res.ok) { setTimeout(load, 3000); return; }
+    const list = await res.json(), by = Object.fromEntries(list.map(p => [p.slug, p]));
+    $('#keyform').hidden = true; $('#script-wrap').hidden = false;
+    $('#portals').innerHTML = GROUPS.map(([title, slugs]) => `<section><h2>${title}</h2><div class="cards">${slugs.map(s => {
+      const p = by[s], b = window.HS_BRANDS[s];
+      return `<article class="pcard" data-portal="${s}"><div class="pcard-top"><div class="logo"><span class="logo-mark">${window.HS_MARKS[b.mark]}</span><span><b>${esc(b.name)}</b><small>${esc(p.kind)}</small></span></div></div>
+        <div class="pcard-body"><p>${esc(p.blurb)}</p>
+          <div class="cred"><span>Email</span><b>${esc(p.userName)}</b><span>Password</span><b>${esc(p.password)}</b><span>User</span><b style="font-family:inherit">${esc(p.userDisplay)}, ${esc(p.userTitle.toLowerCase())}</b></div>
+          <div><a class="btn" href="/${s}" target="hs-${s}" rel="noopener">Open ${esc(b.name)}</a></div></div></article>`;
+    }).join('')}</div></section>`).join('');
+  }
+  $('#keyform').addEventListener('submit', e => { e.preventDefault(); KEY = $('#keyin').value.trim(); try { localStorage.setItem('hs-key', KEY); } catch (er) {} load(); });
+  load().catch(() => setTimeout(load, 3000));
+})();
+</script>
 </body>
 </html>

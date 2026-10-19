@@ -8,7 +8,9 @@ namespace HealthSwitch.Sim;
 /// <summary>
 /// Stands in for an API-connected payer's own claims system (Sapphire HMO in the demo).
 /// It accepts a message, then answers a moment later through the gateway, exactly as a real payer
-/// would call our on_* endpoints. Toggle it offline in the switch monitor to see retries.
+/// would call our on_* endpoints. Requests under the automatic limit are decided by its rules; larger
+/// ones wait for a reviewer on Sapphire's own website, whose decision also goes back through the gateway.
+/// Toggle it offline in the switch console to see retries.
 /// </summary>
 public class PayerSimulator(IServiceScopeFactory scopes, ILogger<PayerSimulator> log)
 {
@@ -51,6 +53,18 @@ public class PayerSimulator(IServiceScopeFactory scopes, ILogger<PayerSimulator>
             {
                 var claim = claimId is null ? null : await db.Claims.Include(c => c.Items).FirstOrDefaultAsync(c => c.Id == claimId);
                 if (claim is null) return;
+                var total = claim.Items.Sum(i => i.Requested);
+                // Sapphire's own rules: small requests are decided at once; large ones, and any documents sent back
+                // after a reviewer's query, go to a medical reviewer on Sapphire's own website.
+                if (api == "communication.on_request" || total >= Seeder.SapphireAutoLimit)
+                {
+                    claim.AwaitingPayer = true;
+                    claim.Log(api == "communication.on_request"
+                        ? $"{payerName} system: documents received, back with the medical reviewer"
+                        : $"{payerName} rules engine: ₦{total:N0} is over the ₦{Seeder.SapphireAutoLimit:N0} automatic limit; referred to a medical reviewer");
+                    await db.SaveChangesAsync();
+                    return;
+                }
                 var tariffs = await db.Services.ToDictionaryAsync(s => s.Code, s => s.Tariff);
                 var decisions = claim.Items.OrderBy(i => i.Seq).Select(i =>
                 {

@@ -1,5 +1,6 @@
 using HealthSwitch.Domain;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace HealthSwitch.Data;
 
@@ -7,11 +8,18 @@ namespace HealthSwitch.Data;
 public static class Seeder
 {
     public const string Hospital = "FAC-LA-00231";
+    public const string Riverside = "FAC-RI-00077";
     public const string Sapphire = "HMO-0XA";
     public const string Northstar = "HMO-0XB";
     public const string Coastal = "SSHIA-0XC";
     public const string SwitchCode = "SWITCH";
     public const string Processor = "PROCESSOR";
+    /// <summary>The two hospitals that have their own demo portal.</summary>
+    public static readonly string[] PortalHospitals = { Hospital, Riverside };
+    /// <summary>Requests below this total are decided by Sapphire's own rules engine without a reviewer.</summary>
+    public const long SapphireAutoLimit = 50_000;
+    /// <summary>Bump when the schema or sample data changes: the next start rebuilds the demo database.</summary>
+    public const string SeedVersion = "2";
 
     public static async Task InitAsync(IServiceProvider services, ILogger log)
     {
@@ -22,8 +30,12 @@ public static class Seeder
             {
                 using var scope = services.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<AppDb>();
-                await db.Database.EnsureCreatedAsync();
-                if (!await db.Organisations.AnyAsync()) await SeedAsync(db);
+                var version = await CurrentVersionAsync(db);
+                if (version != SeedVersion)
+                {
+                    log.LogWarning("Sample data version {Found} found, {Wanted} wanted: rebuilding the demo database", version ?? "none", SeedVersion);
+                    await ResetAsync(db);
+                }
                 return;
             }
             catch (Exception ex) when (attempt < 6)
@@ -32,6 +44,30 @@ public static class Seeder
                 await Task.Delay(TimeSpan.FromSeconds(3 * attempt));
             }
         }
+    }
+
+    static async Task<string?> CurrentVersionAsync(AppDb db)
+    {
+        try
+        {
+            return await db.Database.SqlQueryRaw<string>("SELECT \"Value\" FROM \"AppInfo\" WHERE \"Key\" = 'seed_version'").FirstOrDefaultAsync();
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UndefinedTable)
+        {
+            return null; // first start, or a database from before versioning
+        }
+    }
+
+    /// <summary>Drops the demo tables, recreates them and loads fresh sample data.</summary>
+    public static async Task ResetAsync(AppDb db)
+    {
+        foreach (var table in db.Model.GetEntityTypes().Select(t => t.GetTableName()).OfType<string>().Distinct())
+            await db.Database.ExecuteSqlRawAsync("DROP TABLE IF EXISTS \"" + table + "\" CASCADE");
+        foreach (var seq in db.Model.GetSequences())
+            await db.Database.ExecuteSqlRawAsync("DROP SEQUENCE IF EXISTS \"" + seq.Name + "\"");
+        db.ChangeTracker.Clear();
+        await db.Database.EnsureCreatedAsync();
+        await SeedAsync(db);
     }
 
     static Organisation Org(string code, string name, string shortName, OrgType type, ConnectionMode mode, string state = "") =>
@@ -62,7 +98,9 @@ public static class Seeder
             new Member { Nin = "41820937561", MemberNo = "SAP-22041-01", Name = "Adaeze Okafor", PayerCode = Sapphire, Plan = "Gold Family", Active = true },
             new Member { Nin = "52937108264", MemberNo = "NST-55120-01", Name = "Tunde Bakare", PayerCode = Northstar, Plan = "Basic Plus", Active = true },
             new Member { Nin = "63048219375", MemberNo = "CSH-90311-02", Name = "Fatima Bello", PayerCode = Coastal, Plan = "State Formal Sector", Active = true },
-            new Member { Nin = "74159320486", MemberNo = "NST-40877-01", Name = "Musa Ibrahim", PayerCode = Northstar, Plan = "Basic", Active = false, ExpiredOn = new DateOnly(2026, 9, 30) });
+            new Member { Nin = "74159320486", MemberNo = "NST-40877-01", Name = "Musa Ibrahim", PayerCode = Northstar, Plan = "Basic", Active = false, ExpiredOn = new DateOnly(2026, 9, 30) },
+            new Member { Nin = "85260431597", MemberNo = "SAP-30117-01", Name = "Emeka Nwosu", PayerCode = Sapphire, Plan = "Silver", Active = true },
+            new Member { Nin = "96371542608", MemberNo = "NST-61204-01", Name = "Halima Danjuma", PayerCode = Northstar, Plan = "Basic Plus", Active = true });
 
         var services = new[]
         {
@@ -123,13 +161,26 @@ public static class Seeder
         e1.Items[0].Status = ItemStatus.Approved; e1.Items[0].Approved = 15000;
         e1.Items[1].Status = ItemStatus.Query; e1.Items[1].DocType = "Referral letter"; e1.Items[1].Note = "Please attach the GP referral letter. The X-ray request needs a clinical indication.";
         e1.Remarks.Add(new Remark { ClaimId = e1.Id, By = "Northstar HMO · claims reviewer", Text = "Consultation approved. X-ray held until we receive the referral letter.", At = now.AddMinutes(-120) });
-        var f1 = Mk("AUTH-2026-1031", "FAC-LA-00418", Northstar, "Folake Adisa", "NST-22918-01", "33310298874", "R51", 75, ("CONS-01", 15000), ("IMG-40", 210000)); f1.AwaitingPayer = true;
+        // Riverside Medical's named examples.
+        var f1 = Mk("AUTH-2026-1031", Riverside, Northstar, "Folake Adisa", "NST-22918-01", "33310298874", "R51", 75, ("CONS-01", 15000), ("IMG-40", 210000)); f1.AwaitingPayer = true;
+        var r2 = Mk("AUTH-2026-1032", Riverside, Sapphire, "Ebiere Tamuno", "SAP-41187-01", "40391827756", "O82", 55, ("OBS-07", 450000), ("WRD-01", 60000)); r2.AwaitingPayer = true;
+        var r4 = Mk("AUTH-2026-1034", Riverside, Northstar, "Ibinabo George", "NST-70312-01", "52210938471", "B54", 3100, ("CONS-01", 15000), ("LAB-12", 6500), ("DRG-03", 4500)); Approve(r4, 6);
+        var r5 = Mk("AUTH-2026-1035", Riverside, Sapphire, "Tamuno Briggs", "SAP-27719-01", "61820394475", "I10", 2600, ("CONS-01", 15000), ("LAB-31", 18500)); Approve(r5, 0.03);
+        var r6 = Mk("AUTH-2026-1036", Riverside, Northstar, "Soye Jack", "NST-38821-02", "70931248856", "S62.1", 4300, ("CONS-01", 15000), ("IMG-04", 25000));
+        r6.Items[0].Status = ItemStatus.Approved; r6.Items[0].Approved = 15000; r6.Items[1].Status = ItemStatus.Declined; r6.Items[1].Approved = 0; r6.Items[1].Reason = "Not covered by plan"; r6.DecidedAt = r6.SubmittedAt.AddHours(7);
+        // Palmgrove request waiting for Sapphire's medical reviewer.
+        var p7 = Mk("AUTH-2026-1037", Hospital, Sapphire, "Chukwuma Obi", "SAP-50926-01", "38821047763", "K35.8", 35, ("SUR-12", 320000), ("WRD-01", 60000)); p7.AwaitingPayer = true;
         var g1 = Mk("AUTH-2026-1033", "FAC-DE-00152", Coastal, "Ngozi Eze", "CSH-11873-01", "58823019944", "O82", 40, ("OBS-07", 450000), ("WRD-01", 60000)); g1.AwaitingPayer = true;
-        foreach (var x in new[] { a, b, c1, d1, e1 }) x.Log("Sample claim loaded");
+        foreach (var x in new[] { a, b, c1, d1, e1, r4, r5, r6 }) x.Log("Sample claim loaded");
         f1.Log("Placed in Northstar HMO review inbox"); g1.Log("Placed in Coastal State Health Scheme review inbox");
-        db.Claims.AddRange(a, b, c1, d1, e1, f1, g1);
+        foreach (var x in new[] { r2, p7 })
+            x.Log($"Sapphire rules engine: ₦{x.Items.Sum(i => i.Requested):N0} is over the ₦{SapphireAutoLimit:N0} automatic limit; referred to a medical reviewer");
+        r5.Remarks.Add(new Remark { ClaimId = r5.Id, By = "Sapphire HMO · automated rules", Text = "Decided automatically: each service approved up to the agreed tariff.", At = r5.DecidedAt!.Value });
+        d1.Remarks.Add(new Remark { ClaimId = d1.Id, By = "Sapphire HMO · automated rules", Text = "Decided automatically: each service approved up to the agreed tariff.", At = d1.DecidedAt!.Value });
+        db.Claims.AddRange(a, b, c1, d1, e1, f1, g1, r2, r4, r5, r6, p7);
         var la = Ledger(a, false); var lb = Ledger(b, true, 12); lb.Status = "paid"; lb.PaidAt ??= now.AddDays(-1);
-        db.Ledger.AddRange(la, lb, Ledger(c1, false), Ledger(d1, false));
+        var l6 = Ledger(r6, true, 9); l6.Status = "paid"; l6.PaidAt ??= now.AddDays(-2);
+        db.Ledger.AddRange(la, lb, Ledger(c1, false), Ledger(d1, false), Ledger(r4, false), Ledger(r5, false), l6);
 
         // Historical sample claims so the NHIA view has a realistic month of data.
         var rnd = new Random(42);
@@ -165,6 +216,7 @@ public static class Seeder
                 db.Ledger.Add(Ledger(cl, rnd.NextDouble() < 0.75, days));
             }
         }
+        db.AppInfo.Add(new AppInfo { Key = "seed_version", Value = SeedVersion });
         await db.SaveChangesAsync();
     }
 }
