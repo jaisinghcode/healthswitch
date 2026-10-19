@@ -115,3 +115,11 @@ body { margin: 0; }
 .tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; margin-right: 6px; color: var(--brand-ink); background: var(--brand); vertical-align: 1px; }
 a.btn { display: inline-block; text-decoration: none; }
 #portals { display: grid; gap: 24px; }
+@media (max-width: 899px) {
+  .nav { order: 3; flex: 1 1 100%; }
+  .userbox .u, .userbox .live-dot { display: none; }
+}
+@media (max-width: 560px) {
+  .item { grid-template-columns: minmax(0, 1fr); }
+  .item .acts { justify-content: flex-start; }
+}
